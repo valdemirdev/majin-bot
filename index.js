@@ -46,7 +46,7 @@ registerRolesModule(client);
 // ==========================
 const TWITCH_BROADCASTER_ID = '1349140023'; // seu broadcaster_user_id
 
-// Envs "limpas"
+// Envs "limpas" (trim evita espaço invisível)
 const TWITCH_CLIENT_ID = (process.env.TWITCH_CLIENT_ID || '').trim();
 const TWITCH_USER_TOKEN = (process.env.TWITCH_USER_TOKEN || '').trim();
 const TWITCH_BROADCASTER_LOGIN = (process.env.TWITCH_BROADCASTER_LOGIN || '').trim();
@@ -67,6 +67,7 @@ async function twitchApi(path, { method = 'GET', body } = {}) {
   const r = await fetchFn(`https://api.twitch.tv/helix${path}`, {
     method,
     headers: {
+      // ✅ USER TOKEN AQUI
       'Authorization': `Bearer ${TWITCH_USER_TOKEN}`,
       'Client-Id': TWITCH_CLIENT_ID,
       'Content-Type': 'application/json',
@@ -85,14 +86,14 @@ async function ensureWsSubscription(sessionId) {
   // evita duplicar
   const list = await twitchApi('/eventsub/subscriptions', { method: 'GET' });
 
-  const already = (list?.data || []).some((s) =>
+  const exists = (list?.data || []).some((s) =>
     s?.type === 'stream.online' &&
     s?.condition?.broadcaster_user_id === TWITCH_BROADCASTER_ID &&
     s?.transport?.method === 'websocket' &&
     (s?.status === 'enabled' || s?.status === 'pending')
   );
 
-  if (already) {
+  if (exists) {
     console.log('✅ Subscription WS já existe (enabled/pending).');
     return;
   }
@@ -140,9 +141,6 @@ async function startTwitchEventSubWS() {
   console.log('🚀 Iniciando Twitch EventSub WS...');
   console.log('🌩️ Conectando no EventSub WebSocket da Twitch...');
 
-  if (!TWITCH_CLIENT_ID) console.log('⚠️ Falta TWITCH_CLIENT_ID.');
-  if (!TWITCH_USER_TOKEN) console.log('⚠️ Falta TWITCH_USER_TOKEN.');
-
   const ws = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
 
   ws.on('open', () => console.log('✅ WebSocket Twitch conectado.'));
@@ -187,9 +185,7 @@ async function startTwitchEventSubWS() {
     setTimeout(() => startTwitchEventSubWS().catch(console.error), 5000);
   });
 
-  ws.on('error', (err) => {
-    console.error('❌ Erro WebSocket Twitch:', err?.message || err);
-  });
+  ws.on('error', (err) => console.error('❌ Erro WebSocket Twitch:', err?.message || err));
 }
 
 // ==========================
