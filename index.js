@@ -1,3 +1,11 @@
+// Anti-crash / logs úteis
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
 require('dotenv').config();
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 
@@ -26,3 +34,19 @@ registerWelcomeModule(client);
 registerRolesModule(client);
 
 client.login(process.env.DISCORD_TOKEN);
+
+// Healthcheck HTTP (Render gosta disso)
+const http = require('http');
+
+const PORT = process.env.PORT || 3000;
+
+http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    return res.end('OK');
+  }
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Majin Boo-T online');
+}).listen(PORT, () => {
+  console.log(`🌐 Healthcheck rodando na porta ${PORT}`);
+});
