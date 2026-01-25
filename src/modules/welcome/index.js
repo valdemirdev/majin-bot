@@ -1,4 +1,4 @@
-console.log("✅ WELCOME BUILD FINAL 3000.0 (ANTI-DUP DEFINITIVO)");
+console.log("🔥 WELCOME BUILD FINAL 4000.0 — LIMPO E ANTI-DUP 🔥");
 
 const {
   EmbedBuilder,
@@ -11,8 +11,6 @@ const {
 const WELCOME_CHANNEL_ID = "1462159709552378071";
 const REGRAS_CHANNEL_ID = "1462147522540736684";
 const CARGOS_CHANNEL_ID = "1462166121904865353";
-const GERAL_CHANNEL_ID = "1462147707144765502";
-const BEERUS_USER_ID = "1344329313977241604";
 const TWITCH_URL = "https://twitch.tv/guinnhoo_";
 
 const THEME_COLOR = 0x3b0a77;
@@ -23,29 +21,18 @@ const BANNER_W = 800;
 const BANNER_H = 270;
 
 // ==========================
-// ANTI-DUP GLOBAL (REAL)
+// ANTI DUP (POR USUÁRIO) + LOCK GLOBAL
 // ==========================
 const recentWelcomes = new Map(); // userId -> timestamp
+let welcomeLocked = false;
 
 function canSend(userId) {
   const now = Date.now();
-  if (recentWelcomes.has(userId)) {
-    const last = recentWelcomes.get(userId);
-    if (now - last < 120000) return false; // 2 minutos de bloqueio
-  }
+  const last = recentWelcomes.get(userId);
+  if (last && now - last < 180000) return false; // 3 minutos
   recentWelcomes.set(userId, now);
-  setTimeout(() => recentWelcomes.delete(userId), 120000);
+  setTimeout(() => recentWelcomes.delete(userId), 180000);
   return true;
-}
-
-function mentionChannel(id, fallback) {
-  if (id && /^\d+$/.test(id)) return `<#${id}>`;
-  return fallback;
-}
-
-function mentionUser(id, fallback) {
-  if (id && /^\d+$/.test(id)) return `<@${id}>`;
-  return fallback;
 }
 
 function channelUrl(guildId, channelId) {
@@ -53,7 +40,8 @@ function channelUrl(guildId, channelId) {
 }
 
 // ==========================
-// BANNER
+// BANNER (apenas imagem, sem texto fora do banner)
+// Requires: npm i @napi-rs/canvas
 // ==========================
 async function tryMakeWelcomeBanner(member) {
   let Canvas;
@@ -67,6 +55,7 @@ async function tryMakeWelcomeBanner(member) {
   const canvas = createCanvas(BANNER_W, BANNER_H);
   const ctx = canvas.getContext("2d");
 
+  // Background gradient (dark roxo)
   const grad = ctx.createLinearGradient(0, 0, BANNER_W, BANNER_H);
   grad.addColorStop(0, "#120016");
   grad.addColorStop(0.5, "#2a0a3b");
@@ -74,6 +63,7 @@ async function tryMakeWelcomeBanner(member) {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, BANNER_W, BANNER_H);
 
+  // Avatar
   const avatarUrl = member.user.displayAvatarURL({ extension: "png", size: 256 });
   let avatarImg = null;
   try {
@@ -84,32 +74,46 @@ async function tryMakeWelcomeBanner(member) {
   const cy = BANNER_H / 2;
   const rad = 72;
 
+  // Ring
+  ctx.save();
+  ctx.strokeStyle = "#b04bff";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(cx, cy, rad + 6, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Clip avatar
+  ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, rad, 0, Math.PI * 2);
   ctx.clip();
   if (avatarImg) ctx.drawImage(avatarImg, cx - rad, cy - rad, rad * 2, rad * 2);
   ctx.restore();
 
+  // Text
+  const name = String(member.displayName || member.user.username || "Novato").trim();
+
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 40px sans-serif";
-  ctx.fillText("BEM-VINDO(A)!!", 220, 80);
+  ctx.font = "bold 38px sans-serif";
+  ctx.fillText("BEM-VINDO(A)!!", 220, 75);
 
-  ctx.font = "bold 28px sans-serif";
-  ctx.fillText(member.displayName, 220, 120);
+  ctx.font = "bold 26px sans-serif";
+  ctx.fillText(name, 220, 115);
 
-  ctx.font = "24px sans-serif";
-  ctx.fillText(SERVER_DISPLAY_NAME_OVERRIDE, 220, 155);
+  ctx.font = "22px sans-serif";
+  ctx.globalAlpha = 0.95;
+  ctx.fillText(SERVER_DISPLAY_NAME_OVERRIDE, 220, 150);
+  ctx.globalAlpha = 1;
 
-  // 🔽 TEXTOS CORRIGIDOS (MENORES + QUEBRA)
+  // Lines smaller to always fit
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 18px sans-serif";
-  ctx.fillText("DIVIRTA-SE NO CHAT DA NOSSA", 220, 195);
-  ctx.fillText("COMUNIDADE!", 220, 220);
+  ctx.fillText("DIVIRTA-SE NO CHAT DA NOSSA COMUNIDADE!", 220, 190);
 
   ctx.fillStyle = "#ffd166";
   ctx.font = "bold 16px sans-serif";
-  ctx.fillText("NÃO DEIXA DE CONFERIR OS CANAIS", 220, 245);
-  ctx.fillText("DOS BOTÕES ABAIXO", 220, 265);
+  ctx.fillText("NÃO DEIXA DE CONFERIR OS CANAIS DOS BOTÕES ABAIXO", 220, 220);
 
   return canvas.toBuffer("image/png");
 }
@@ -122,18 +126,35 @@ function registerWelcomeModule(client) {
     console.log("⚠️ Welcome já registrado — ignorando duplicado.");
     return;
   }
+
   client.__welcomeRegistered = true;
-  console.log("✅ Welcome registrado FINAL 3000.0");
+  console.log("✅ Welcome registrado FINAL 4000.0");
 
   client.on("guildMemberAdd", async (member) => {
     try {
-      if (!canSend(member.id)) {
-        console.log("⛔ Bloqueado envio duplicado para", member.user.tag);
+      // trava global curtinha (evita 2 disparos quase simultâneos)
+      if (welcomeLocked) {
+        console.log("⛔ Evento bloqueado por LOCK (global).");
         return;
       }
 
+      // trava por usuário (evita repetir pro mesmo cara)
+      if (!canSend(member.id)) {
+        console.log("⛔ Bloqueado envio duplicado para", member.user?.tag || member.id);
+        return;
+      }
+
+      welcomeLocked = true;
+      setTimeout(() => (welcomeLocked = false), 3500);
+
       const channel = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
       if (!channel) return;
+
+      const bannerBuf = await tryMakeWelcomeBanner(member);
+      if (!bannerBuf) {
+        console.log("❌ Banner não gerado (falta @napi-rs/canvas) — mensagem cancelada");
+        return;
+      }
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -146,25 +167,25 @@ function registerWelcomeModule(client) {
           .setURL(channelUrl(member.guild.id, CARGOS_CHANNEL_ID)),
         new ButtonBuilder()
           .setStyle(ButtonStyle.Link)
-          .setLabel("🟣 Twitch")
+          .setLabel("Twitch")
           .setURL(TWITCH_URL)
       );
 
+      // ✅ Embed só com a imagem (SEM texto acima do banner)
       const embed = new EmbedBuilder()
         .setColor(THEME_COLOR)
+        .setImage(`attachment://${BANNER_FILENAME}`)
         .setTimestamp();
 
-      const bannerBuf = await tryMakeWelcomeBanner(member);
-      if (bannerBuf) {
-        const file = new AttachmentBuilder(bannerBuf, { name: BANNER_FILENAME });
-        embed.setImage(`attachment://${BANNER_FILENAME}`);
-        await channel.send({ embeds: [embed], components: [row], files: [file] });
-      } else {
-        await channel.send({ embeds: [embed], components: [row] });
-      }
+      const file = new AttachmentBuilder(bannerBuf, { name: BANNER_FILENAME });
 
-      console.log("✅ Welcome enviado para", member.user.tag);
+      await channel.send({
+        embeds: [embed],
+        components: [row],
+        files: [file],
+      });
 
+      console.log("✅ Welcome enviado UMA ÚNICA VEZ para", member.user?.tag || member.id);
     } catch (err) {
       console.error("❌ Erro no welcome:", err);
     }
