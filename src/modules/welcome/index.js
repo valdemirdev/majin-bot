@@ -8,8 +8,9 @@ const {
   AttachmentBuilder,
 } = require("discord.js");
 
+// ==========================
 // CONFIG (SEUS IDS)
-
+// ==========================
 const WELCOME_CHANNEL_ID = "1462159709552378071";
 
 // Canais que você quer nos botões
@@ -36,8 +37,9 @@ const BANNER_FILENAME = "welcome.png";
 const BANNER_W = 800;
 const BANNER_H = 270;
 
+// ==========================
 // HELPERS
-
+// ==========================
 function mentionChannel(id, fallbackText) {
   if (id && /^\d{15,25}$/.test(id)) return `<#${id}>`;
   return fallbackText;
@@ -59,9 +61,10 @@ function channelUrl(guildId, channelId) {
   return `https://discord.com/channels/${guildId}/${channelId}`;
 }
 
+// ==========================
 // BANNER GENERATOR (PNG)
 // Requires: npm i @napi-rs/canvas
-
+// ==========================
 async function tryMakeWelcomeBanner(member) {
   let Canvas;
   try {
@@ -185,15 +188,17 @@ async function tryMakeWelcomeBanner(member) {
   return canvas.toBuffer("image/png");
 }
 
+// ==========================
 // MODULE
-
+// ==========================
 function registerWelcomeModule(client) {
   if (client.__welcomeRegistered) {
-    console.log('⚠️ Welcome já registrado — ignorando (anti-dup).');
+    console.log("⚠️ Welcome já registrado — ignorando (anti-dup).");
     return;
   }
   client.__welcomeRegistered = true;
-  console.log('✅ Welcome registrado (V6).');
+  console.log("✅ Welcome registrado (V6).");
+
   client.on("guildMemberAdd", async (member) => {
     try {
       const channel = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
