@@ -9,7 +9,7 @@ process.on('uncaughtException', (err) => {
 
 require('dotenv').config();
 
-console.log('🔥 MAJIN BOO-T - ULTIMATE FIX (WELCOME WINS LAST) 🔥');
+console.log('🔥 MAJIN BOO-T - UPGRADE V3 (BANNER + EMBED CLEAN) 🔥');
 
 const http = require('http');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
@@ -24,43 +24,28 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-// ========= MÓDULOS =========
+// Módulos
 const { registerWelcomeModule } = require('./src/modules/welcome');
 
-// Se você usa reaction roles, mantém carregado. (Ele NÃO deveria mexer com guildMemberAdd.)
+// Roles module (mantém se você usa reaction roles)
 let registerRolesModule = null;
 try {
   ({ registerRolesModule } = require('./src/modules/roles'));
   console.log('🧩 Roles module carregado (reaction roles).');
 } catch {
-  // ok
+  // ok se não existir
 }
 
-if (registerRolesModule) registerRolesModule(client);
-
-// ========= READY =========
-// 🔥 Aqui está o "ultimate fix":
-// Quando o bot fica pronto, a gente REMOVE qualquer listener fantasma de guildMemberAdd
-// (de qualquer módulo antigo que você ainda esteja carregando sem querer)
-// e só então registra o welcome premium.
 client.once('clientReady', () => {
   console.log(`🤖 Majin Boo-T online como ${client.user.tag}`);
-
-  const before = client.listenerCount('guildMemberAdd');
-  console.log(`🧹 Limpando guildMemberAdd (antes: ${before})`);
-  client.removeAllListeners('guildMemberAdd');
-  const after = client.listenerCount('guildMemberAdd');
-  console.log(`✅ guildMemberAdd limpo (depois: ${after})`);
-
-  registerWelcomeModule(client);
-
-  console.log(`👂 guildMemberAdd agora: ${client.listenerCount('guildMemberAdd')} (deve ser 1)`);
 });
 
-// ========= LOGIN =========
+registerWelcomeModule(client);
+if (registerRolesModule) registerRolesModule(client);
+
 client.login(process.env.DISCORD_TOKEN);
 
-// ========= HEALTHCHECK =========
+// Healthcheck
 const PORT = process.env.PORT || 3001;
 
 http.createServer((req, res) => {
