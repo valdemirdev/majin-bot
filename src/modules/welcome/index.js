@@ -10,17 +10,30 @@ const {
 // CONFIG (SEUS IDS)
 // ==========================
 const WELCOME_CHANNEL_ID = "1462159709552378071";
-const GERAL_CHANNEL_ID = "1462147707144765502";
+
+// Canais que você quer nos botões
 const REGRAS_CHANNEL_ID = "1462147522540736684";
+const CARGOS_CHANNEL_ID = "1462166121904865353";
+
+// (Opcional) canal de chat pra mencionar no texto
+const GERAL_CHANNEL_ID = "1462147707144765502";
+
+// (Opcional) ID do Beerus para mencionar
 const BEERUS_USER_ID = "1344329313977241604";
 
+// Botão da Twitch
 const TWITCH_URL = "https://twitch.tv/guinnhoo_";
+
+// Cor temática: Dark Roxo
 const THEME_COLOR = 0x3b0a77;
+
+// Nome fixo no banner (como você pediu)
+const SERVER_DISPLAY_NAME_OVERRIDE = "Hakaiz | Comunidade MMORPG";
 
 // Banner
 const BANNER_FILENAME = "welcome.png";
 const BANNER_W = 800;
-const BANNER_H = 250;
+const BANNER_H = 270;
 
 // ==========================
 // HELPERS
@@ -39,6 +52,11 @@ function safeText(str, max = 30) {
   if (!str) return "";
   const s = String(str).replace(/\s+/g, " ").trim();
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+// Link direto para um canal (funciona em botão Link)
+function channelUrl(guildId, channelId) {
+  return `https://discord.com/channels/${guildId}/${channelId}`;
 }
 
 // ==========================
@@ -69,9 +87,13 @@ async function tryMakeWelcomeBanner(member) {
   // Glow blobs
   ctx.globalAlpha = 0.35;
   ctx.fillStyle = "#8a2be2";
-  ctx.beginPath(); ctx.ellipse(120, 60, 170, 120, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(120, 60, 170, 120, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = "#5b2cff";
-  ctx.beginPath(); ctx.ellipse(680, 190, 220, 150, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(680, 205, 240, 160, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.globalAlpha = 1;
 
   // Border gradient
@@ -93,7 +115,7 @@ async function tryMakeWelcomeBanner(member) {
   ctx.closePath();
   ctx.stroke();
 
-  // Avatar circle
+  // Avatar
   const avatarUrl = member.user.displayAvatarURL({ extension: "png", size: 256 });
   let avatarImg = null;
   try {
@@ -106,7 +128,7 @@ async function tryMakeWelcomeBanner(member) {
   const cy = BANNER_H / 2;
   const rad = 72;
 
-  // Avatar outer ring
+  // Outer ring
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, rad + 8, 0, Math.PI * 2);
@@ -116,7 +138,7 @@ async function tryMakeWelcomeBanner(member) {
   ctx.stroke();
   ctx.restore();
 
-  // Avatar clipped
+  // Clip avatar
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, rad, 0, Math.PI * 2);
@@ -132,27 +154,34 @@ async function tryMakeWelcomeBanner(member) {
   ctx.restore();
 
   // Text
-  const title = "Bem-vindo(a)!!";
+  const title = "BEM-VINDO(A)!!";
   const name = safeText(member.displayName || member.user.username, 24);
-  const server = safeText(member.guild?.name || "Servidor", 32);
+  const server = safeText(SERVER_DISPLAY_NAME_OVERRIDE || member.guild?.name || "Servidor", 34);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 44px sans-serif";
-  ctx.fillText(title, 220, 95);
+  ctx.fillText(title, 220, 85);
 
   ctx.font = "bold 30px sans-serif";
   ctx.globalAlpha = 0.95;
-  ctx.fillText(name, 220, 140);
+  ctx.fillText(name, 220, 128);
 
   ctx.font = "24px sans-serif";
-  ctx.globalAlpha = 0.85;
-  ctx.fillText(server, 220, 178);
+  ctx.globalAlpha = 0.9;
+  ctx.fillText(server, 220, 162);
   ctx.globalAlpha = 1;
 
-  ctx.globalAlpha = 0.55;
-  ctx.font = "18px sans-serif";
-  ctx.fillText("Se apresente no #geral e leia as #regras 💜", 220, 215);
+  // New lines (como você pediu)
+  ctx.fillStyle = "#ffffff";
+  ctx.globalAlpha = 0.92;
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillText("DIVIRTA-SE NO CHAT DA NOSSA COMUNIDADE!", 220, 196);
   ctx.globalAlpha = 1;
+
+  // High contrast highlight
+  ctx.fillStyle = "#ffd166";
+  ctx.font = "bold 20px sans-serif";
+  ctx.fillText("NÃO DEIXA DE CONFERIR OS CANAIS DOS BOTÕES ABAIXO", 220, 226);
 
   return canvas.toBuffer("image/png");
 }
@@ -161,25 +190,19 @@ async function tryMakeWelcomeBanner(member) {
 // MODULE
 // ==========================
 function registerWelcomeModule(client) {
-  // NÃO remove listeners aqui. (O index.js já limpa no ready e garante que o welcome ganha por último.)
-
   client.on("guildMemberAdd", async (member) => {
     try {
-      const channel = await member.guild.channels
-        .fetch(WELCOME_CHANNEL_ID)
-        .catch(() => null);
+      const channel = await member.guild.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
       if (!channel) return;
 
       const geral = mentionChannel(GERAL_CHANNEL_ID, "#💬-geral");
-      const regras = mentionChannel(REGRAS_CHANNEL_ID, "#📌-regras");
+      const regrasMention = mentionChannel(REGRAS_CHANNEL_ID, "#📌-regras");
+      const cargosMention = mentionChannel(CARGOS_CHANNEL_ID, "#🎭-cargos");
       const beerus = mentionUser(BEERUS_USER_ID, "@Beerus");
 
       const embed = new EmbedBuilder()
         .setColor(THEME_COLOR)
-        .setAuthor({
-          name: "👋 Bem vindo(a) !!",
-          iconURL: member.user.displayAvatarURL({ size: 128 }),
-        })
+        .setAuthor({ name: "👋 Bem vindo(a) !!" })
         .setDescription(
           [
             `Olá ${member}, seja bem vindo(a) ao discord do ${beerus}`,
@@ -188,13 +211,23 @@ function registerWelcomeModule(client) {
             `Se apresente no canal ${geral} e se divirta por aqui.`,
             ``,
             `**Se liga nessa dica!**`,
-            `Leia as ${regras} é importante !`,
+            `Leia as ${regrasMention} e confira ${cargosMention}.`,
+            ``,
+            `🎥 **Acompanhe as lives diretamente nos botões abaixo ⬇️**`,
           ].join("\n")
         )
-        .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
         .setTimestamp();
 
+      // ✅ Botões: Regras | Cargos | Twitch
       const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel("📌 Regras")
+          .setURL(channelUrl(member.guild.id, REGRAS_CHANNEL_ID)),
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel("🎭 Cargos")
+          .setURL(channelUrl(member.guild.id, CARGOS_CHANNEL_ID)),
         new ButtonBuilder()
           .setStyle(ButtonStyle.Link)
           .setLabel("Twitch")
