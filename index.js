@@ -9,7 +9,8 @@ process.on('uncaughtException', (err) => {
 
 require('dotenv').config();
 
-console.log('🔥 MAJIN BOO-T - UPGRADE V3 (BANNER + EMBED CLEAN) 🔥');
+console.log('✅ BUILD: V6-WELCOME-BOTOES-ANTI-DUP');
+console.log('🔥 MAJIN BOO-T - GITHUB FIX V6 (WELCOME BOTÕES + ANTI-DUP) 🔥');
 
 const http = require('http');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
@@ -36,7 +37,11 @@ try {
   // ok se não existir
 }
 
+<<<<<<< HEAD
 client.once('clientReady', () => {
+=======
+client.once('ready', () => {
+>>>>>>> 7f0da15 (fix: welcome v6 (botoes + banner + anti-dup + build signature))
   console.log(`🤖 Majin Boo-T online como ${client.user.tag}`);
 });
 
