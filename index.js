@@ -8,66 +8,73 @@ console.log('🔥 LIVE ALERT TWITCH (EVENTSUB WS + USER TOKEN) - BUILD NOVO 🔥
 
 const http = require('http');
 const WebSocket = require('ws');
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require('discord.js');
 
-const { registerWelcomeModule } = require('./src/modules/welcome');
-const { registerRolesModule } = require('./src/modules/roles');
+// ======================
+// CONFIG
+// ======================
+const PORT = process.env.PORT || 3000;
 
-// ==========================
-// fetch (Node 18+ tem nativo; fallback p/ node-fetch se não tiver)
-// ==========================
-let fetchFn = global.fetch;
-if (!fetchFn) {
-  fetchFn = async (...args) => {
-    const mod = await import('node-fetch');
-    return mod.default(...args);
-  };
-  console.log('ℹ️ fetch nativo não encontrado, usando node-fetch (import dinâmico).');
-}
-
-// ==========================
-// Discord Client
-// ==========================
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions
-  ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
-});
-
-// ✅ Registra módulos só UMA vez, depois do bot estar pronto
-client.once('ready', () => {
-  console.log(`✅ Logado como ${client.user.tag}`);
-  // Evita duplicação se algum deploy/hot-reload reaproveitar processo
-  client.removeAllListeners('guildMemberAdd');
-  registerWelcomeModule(client);
-  registerRolesModule(client);
-});
-
-
-
-// ==========================
-// Twitch EventSub via WebSocket (LIVE ALERT)
-// ==========================
+// Twitch (Helix) via USER TOKEN
 const TWITCH_BROADCASTER_ID = '1349140023'; // seu broadcaster_user_id
-
-// Envs "limpas" (trim evita espaço invisível)
 const TWITCH_CLIENT_ID = (process.env.TWITCH_CLIENT_ID || '').trim();
 const TWITCH_USER_TOKEN = (process.env.TWITCH_USER_TOKEN || '').trim();
 const TWITCH_BROADCASTER_LOGIN = (process.env.TWITCH_BROADCASTER_LOGIN || '').trim();
+
+// Discord
+const DISCORD_TOKEN = (process.env.DISCORD_TOKEN || '').trim();
 const DISCORD_LIVE_CHANNEL_ID = (process.env.DISCORD_LIVE_CHANNEL_ID || '').trim();
 
-// Logs seguros (não expõem token)
-console.log('🔎 TWITCH_CLIENT_ID length:', TWITCH_CLIENT_ID.length, 'tem espaço?', /\s/.test(TWITCH_CLIENT_ID));
-console.log('🔎 TWITCH_USER_TOKEN length:', TWITCH_USER_TOKEN.length, 'tem espaço?', /\s/.test(TWITCH_USER_TOKEN));
-console.log('🔎 TWITCH_BROADCASTER_LOGIN:', TWITCH_BROADCASTER_LOGIN ? '(ok)' : '(faltando)');
-console.log('🔎 DISCORD_LIVE_CHANNEL_ID:', DISCORD_LIVE_CHANNEL_ID ? '(ok)' : '(faltando)');
+// Anti-spam
+let lastLiveNotifyAt = 0;
 
-let lastLiveNotifyAt = 0; // anti-spam simples
+// ======================
+// HTTP HEALTH
+// ======================
+const server = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    return res.end('Majin Boo-T online');
+  }
+  res.writeHead(404);
+  res.end('Not Found');
+});
 
+server.listen(PORT, () => console.log(`🌐 HTTP rodando na porta ${PORT}`));
+
+// ======================
+// DISCORD CLIENT
+// ======================
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+  ],
+  partials: [Partials.Channel],
+});
+
+client.once('ready', () => {
+  console.log(`🤖 Discord OK: logado como ${client.user.tag}`);
+});
+
+// ======================
+// FETCH (Node 18+ tem global, mas deixo compatível)
+// ======================
+const fetchFn = global.fetch
+  ? (...args) => global.fetch(...args)
+  : (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+
+// ======================
+// TWITCH API HELPER
+// ======================
 async function twitchApi(path, { method = 'GET', body } = {}) {
   if (!TWITCH_CLIENT_ID) throw new Error('Falta TWITCH_CLIENT_ID no Render.');
   if (!TWITCH_USER_TOKEN) throw new Error('Falta TWITCH_USER_TOKEN no Render.');
@@ -90,33 +97,155 @@ async function twitchApi(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-async function ensureWsSubscription(sessionId) {
-  // evita duplicar
-  const list = await twitchApi('/eventsub/subscriptions', { method: 'GET' });
+// ======================
+// EVENTSUB WS (Twitch)
+// ======================
+const TWITCH_EVENTSUB_WS_URL = 'wss://eventsub.wss.twitch.tv/ws';
+let ws;
+let sessionId = null;
 
-  const exists = (list?.data || []).some((s) =>
-    s?.type === 'stream.online' &&
-    s?.condition?.broadcaster_user_id === TWITCH_BROADCASTER_ID &&
-    s?.transport?.method === 'websocket' &&
-    (s?.status === 'enabled' || s?.status === 'pending')
-  );
+function connectEventSubWS() {
+  console.log('🔌 Conectando no EventSub WS...');
+  ws = new WebSocket(TWITCH_EVENTSUB_WS_URL);
 
-  if (exists) {
-    console.log('✅ Subscription WS já existe (enabled/pending).');
-    return;
+  ws.on('open', () => console.log('✅ WS conectado!'));
+
+  ws.on('message', async (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      const type = msg?.metadata?.message_type;
+
+      // Welcome -> pega session.id
+      if (type === 'session_welcome') {
+        sessionId = msg?.payload?.session?.id;
+        console.log('🆔 Session ID:', sessionId);
+
+        // cria subscription stream.online
+        await ensureStreamOnlineSubscription(sessionId);
+        return;
+      }
+
+      // notification -> evento
+      if (type === 'notification') {
+        const subType = msg?.payload?.subscription?.type;
+        if (subType === 'stream.online') {
+          const login = msg?.payload?.event?.broadcaster_user_login || TWITCH_BROADCASTER_LOGIN;
+          console.log('🔴 stream.online recebido! login:', login || '(sem login no payload)');
+
+          await sendLiveAlert();
+        }
+        return;
+      }
+
+      // keepalive
+      if (type === 'session_keepalive') return;
+
+      // reconnect
+      if (type === 'session_reconnect') {
+        const newUrl = msg?.payload?.session?.reconnect_url;
+        console.log('♻️ Reconnect solicitado:', newUrl);
+        try { ws.close(); } catch {}
+        if (newUrl) connectToReconnectUrl(newUrl);
+        return;
+      }
+
+      // revocation
+      if (type === 'revocation') {
+        console.log('⚠️ Subscription revogada:', msg?.payload?.subscription?.type);
+        return;
+      }
+    } catch (e) {
+      console.error('❌ Erro processando WS message:', e);
+    }
+  });
+
+  ws.on('close', (code) => {
+    console.log('🔌 WS fechado:', code, ' - reconectando em 5s...');
+    sessionId = null;
+    setTimeout(connectEventSubWS, 5000);
+  });
+
+  ws.on('error', (err) => {
+    console.error('❌ WS erro:', err?.message || err);
+  });
+}
+
+function connectToReconnectUrl(url) {
+  console.log('🔌 Conectando no reconnect_url...');
+  ws = new WebSocket(url);
+
+  ws.on('open', () => console.log('✅ WS reconnect conectado!'));
+
+  ws.on('message', async (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      const type = msg?.metadata?.message_type;
+
+      if (type === 'session_welcome') {
+        sessionId = msg?.payload?.session?.id;
+        console.log('🆔 Session ID (reconnect):', sessionId);
+        await ensureStreamOnlineSubscription(sessionId);
+        return;
+      }
+
+      if (type === 'notification') {
+        const subType = msg?.payload?.subscription?.type;
+        if (subType === 'stream.online') {
+          console.log('🔴 stream.online recebido (reconnect)!');
+          await sendLiveAlert();
+        }
+      }
+    } catch (e) {
+      console.error('❌ Erro processando WS message (reconnect):', e);
+    }
+  });
+
+  ws.on('close', (code) => {
+    console.log('🔌 WS reconnect fechado:', code, ' - voltando para WS padrão em 5s...');
+    sessionId = null;
+    setTimeout(connectEventSubWS, 5000);
+  });
+
+  ws.on('error', (err) => {
+    console.error('❌ WS reconnect erro:', err?.message || err);
+  });
+}
+
+async function ensureStreamOnlineSubscription(session_id) {
+  // lista subs e verifica se já existe
+  try {
+    const subs = await twitchApi('/eventsub/subscriptions', { method: 'GET' });
+    const exists = subs?.data?.some(
+      (s) =>
+        s?.type === 'stream.online' &&
+        s?.condition?.broadcaster_user_id === TWITCH_BROADCASTER_ID &&
+        s?.transport?.method === 'websocket'
+    );
+
+    if (exists) {
+      console.log('✅ Subscription stream.online já existe (WS).');
+      return;
+    }
+  } catch (e) {
+    console.log('⚠️ Não consegui listar subscriptions (seguindo para tentar criar):', e?.message || e);
   }
 
-  const payload = {
+  console.log('➕ Criando subscription stream.online (WS)...');
+
+  const body = {
     type: 'stream.online',
     version: '1',
     condition: { broadcaster_user_id: TWITCH_BROADCASTER_ID },
-    transport: { method: 'websocket', session_id: sessionId },
+    transport: { method: 'websocket', session_id },
   };
 
-  const res = await twitchApi('/eventsub/subscriptions', { method: 'POST', body: payload });
-  console.log('✅ Subscription WS criada:', res?.data?.[0]?.id || '(sem id)');
+  const created = await twitchApi('/eventsub/subscriptions', { method: 'POST', body });
+  console.log('✅ Subscription criada:', created?.data?.[0]?.id || '(sem id)');
 }
 
+// ======================
+// ✅ LIVE ALERT (EDITADO)
+// ======================
 async function sendLiveAlert() {
   if (!DISCORD_LIVE_CHANNEL_ID) {
     console.log('⚠️ DISCORD_LIVE_CHANNEL_ID não configurado no Render.');
@@ -141,83 +270,67 @@ async function sendLiveAlert() {
     return;
   }
 
-  await channel.send(`🔴 **LIVE AGORA!**\nhttps://twitch.tv/${TWITCH_BROADCASTER_LOGIN}`);
-  console.log('✅ Alerta de live enviado no Discord');
-}
+  const twitchUrl = `https://twitch.tv/${TWITCH_BROADCASTER_LOGIN}`;
 
-async function startTwitchEventSubWS() {
-  console.log('🚀 Iniciando Twitch EventSub WS...');
-  console.log('🌩️ Conectando no EventSub WebSocket da Twitch...');
+  // Puxa dados do stream (jogo/título) + avatar do canal
+  let gameName = '—';
+  let streamTitle = null;
+  let avatarUrl = null;
 
-  const ws = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+  try {
+    const [streamsRes, userRes] = await Promise.all([
+      twitchApi(`/streams?user_id=${TWITCH_BROADCASTER_ID}`, { method: 'GET' }),
+      twitchApi(`/users?id=${TWITCH_BROADCASTER_ID}`, { method: 'GET' }),
+    ]);
 
-  ws.on('open', () => console.log('✅ WebSocket Twitch conectado.'));
+    const stream = streamsRes?.data?.[0];
+    if (stream?.game_name) gameName = stream.game_name;
+    if (stream?.title) streamTitle = stream.title;
 
-  ws.on('message', async (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw.toString('utf8')); } catch { return; }
-
-    const messageType = msg?.metadata?.message_type;
-
-    if (messageType === 'session_welcome') {
-      const sessionId = msg?.payload?.session?.id;
-      console.log('✅ session_welcome. session_id =', sessionId);
-
-      try {
-        await ensureWsSubscription(sessionId);
-      } catch (e) {
-        console.error('❌ Erro ao criar/garantir subscription WS:', e?.message || e);
-      }
-      return;
-    }
-
-    if (messageType === 'notification') {
-      const subType = msg?.payload?.subscription?.type;
-      if (subType === 'stream.online') {
-        console.log('🔴 Evento stream.online recebido!');
-        await sendLiveAlert();
-      }
-      return;
-    }
-
-    if (messageType === 'session_keepalive') return;
-
-    if (messageType === 'session_reconnect') {
-      console.log('♻️ Twitch pediu reconnect. Reiniciando WS...');
-      try { ws.close(); } catch {}
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('⚠️ WebSocket Twitch fechou. Reconectando em 5s...');
-    setTimeout(() => startTwitchEventSubWS().catch(console.error), 5000);
-  });
-
-  ws.on('error', (err) => console.error('❌ Erro WebSocket Twitch:', err?.message || err));
-}
-
-// ==========================
-// Ready + Login
-// ==========================
-client.once('clientReady', () => {
-  console.log(`🤖 Majin BooT online como ${client.user.tag}`);
-  startTwitchEventSubWS().catch(console.error);
-});
-
-client.login(process.env.DISCORD_TOKEN);
-
-// ==========================
-// Healthcheck HTTP (Render gosta disso)
-// ==========================
-const PORT = process.env.PORT || 3000;
-
-http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    return res.end('OK');
+    const user = userRes?.data?.[0];
+    if (user?.profile_image_url) avatarUrl = user.profile_image_url;
+  } catch (e) {
+    console.log('⚠️ Falha ao puxar infos da Twitch (vai mandar embed básico):', e?.message || e);
   }
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Majin Boo-T online');
-}).listen(PORT, () => {
-  console.log(`🌐 Healthcheck rodando na porta ${PORT}`);
-});
+
+  const embed = new EmbedBuilder()
+    .setTitle('🔴 ONLINE NA TWITCH !!!')
+    .setURL(twitchUrl)
+    .setDescription(
+      `**JOGANDO:** ${gameName}\n` +
+      (streamTitle ? `**TÍTULO:** ${streamTitle}\n\n` : `\n`) +
+      `Clique no botão abaixo e venha acompanhar!`
+    )
+    .setTimestamp();
+
+  if (avatarUrl) embed.setThumbnail(avatarUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setLabel('ASSISTIR NA TWITCH')
+      .setStyle(ButtonStyle.Link)
+      .setURL(twitchUrl)
+  );
+
+  await channel.send({ embeds: [embed], components: [row] });
+  console.log('✅ Alerta de live (EMBED + BOTÃO) enviado no Discord');
+}
+
+// ======================
+// START
+// ======================
+(async () => {
+  if (!DISCORD_TOKEN) {
+    console.log('❌ Falta DISCORD_TOKEN no Render.');
+    process.exit(1);
+  }
+
+  try {
+    await client.login(DISCORD_TOKEN);
+  } catch (e) {
+    console.error('❌ Falha no login do Discord:', e?.message || e);
+    process.exit(1);
+  }
+
+  connectEventSubWS();
+})();
