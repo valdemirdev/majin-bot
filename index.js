@@ -1,10 +1,11 @@
-// Anti-crash / logs úteis
+// Anti-crash / logs úteis (mostra o erro real no Render)
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 
 require('dotenv').config();
 
 console.log('🔥 LIVE ALERT TWITCH (EVENTSUB WS + USER TOKEN) - BUILD NOVO 🔥');
+console.log('🧠 Node version:', process.version);
 
 const http = require('http');
 const WebSocket = require('ws');
@@ -34,6 +35,24 @@ if (!fetchFn) {
 }
 
 // ==========================
+// Envs (trim evita espaço invisível)
+// ==========================
+const DISCORD_TOKEN = (process.env.DISCORD_TOKEN || '').trim();
+
+const TWITCH_BROADCASTER_ID = '1349140023'; // seu broadcaster_user_id
+const TWITCH_CLIENT_ID = (process.env.TWITCH_CLIENT_ID || '').trim();
+const TWITCH_USER_TOKEN = (process.env.TWITCH_USER_TOKEN || '').trim();
+const TWITCH_BROADCASTER_LOGIN = (process.env.TWITCH_BROADCASTER_LOGIN || '').trim();
+const DISCORD_LIVE_CHANNEL_ID = (process.env.DISCORD_LIVE_CHANNEL_ID || '').trim();
+
+// Logs seguros (não expõem tokens)
+console.log('🔎 DISCORD_TOKEN existe?', !!DISCORD_TOKEN, '| length:', DISCORD_TOKEN.length, '| tem espaço?', /\s/.test(process.env.DISCORD_TOKEN || ''));
+console.log('🔎 TWITCH_CLIENT_ID length:', TWITCH_CLIENT_ID.length, 'tem espaço?', /\s/.test(process.env.TWITCH_CLIENT_ID || ''));
+console.log('🔎 TWITCH_USER_TOKEN length:', TWITCH_USER_TOKEN.length, 'tem espaço?', /\s/.test(process.env.TWITCH_USER_TOKEN || ''));
+console.log('🔎 TWITCH_BROADCASTER_LOGIN:', TWITCH_BROADCASTER_LOGIN ? '(ok)' : '(faltando)');
+console.log('🔎 DISCORD_LIVE_CHANNEL_ID:', DISCORD_LIVE_CHANNEL_ID ? '(ok)' : '(faltando)');
+
+// ==========================
 // Discord Client
 // ==========================
 const client = new Client({
@@ -41,39 +60,17 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions
+    GatewayIntentBits.GuildMessageReactions,
+    // Se seus módulos precisarem ler mensagens (comandos etc), descomenta abaixo
+    // (lembra de ativar "Message Content Intent" no Discord Developer Portal)
+    // GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// ✅ Registra módulos só UMA vez, depois do bot estar pronto
-client.once('ready', () => {
-  console.log(`✅ Logado como ${client.user.tag}`);
-  // Evita duplicação se algum deploy/hot-reload reaproveitar processo
-  client.removeAllListeners('guildMemberAdd');
-  registerWelcomeModule(client);
-  registerRolesModule(client);
-});
-
-
-
 // ==========================
 // Twitch EventSub via WebSocket (LIVE ALERT)
 // ==========================
-const TWITCH_BROADCASTER_ID = '1349140023'; // seu broadcaster_user_id
-
-// Envs "limpas" (trim evita espaço invisível)
-const TWITCH_CLIENT_ID = (process.env.TWITCH_CLIENT_ID || '').trim();
-const TWITCH_USER_TOKEN = (process.env.TWITCH_USER_TOKEN || '').trim();
-const TWITCH_BROADCASTER_LOGIN = (process.env.TWITCH_BROADCASTER_LOGIN || '').trim();
-const DISCORD_LIVE_CHANNEL_ID = (process.env.DISCORD_LIVE_CHANNEL_ID || '').trim();
-
-// Logs seguros (não expõem token)
-console.log('🔎 TWITCH_CLIENT_ID length:', TWITCH_CLIENT_ID.length, 'tem espaço?', /\s/.test(TWITCH_CLIENT_ID));
-console.log('🔎 TWITCH_USER_TOKEN length:', TWITCH_USER_TOKEN.length, 'tem espaço?', /\s/.test(TWITCH_USER_TOKEN));
-console.log('🔎 TWITCH_BROADCASTER_LOGIN:', TWITCH_BROADCASTER_LOGIN ? '(ok)' : '(faltando)');
-console.log('🔎 DISCORD_LIVE_CHANNEL_ID:', DISCORD_LIVE_CHANNEL_ID ? '(ok)' : '(faltando)');
-
 let lastLiveNotifyAt = 0; // anti-spam simples
 
 async function twitchApi(path, { method = 'GET', body } = {}) {
@@ -83,8 +80,7 @@ async function twitchApi(path, { method = 'GET', body } = {}) {
   const r = await fetchFn(`https://api.twitch.tv/helix${path}`, {
     method,
     headers: {
-      // ✅ USER TOKEN AQUI
-      'Authorization': `Bearer ${TWITCH_USER_TOKEN}`,
+      'Authorization': `Bearer ${TWITCH_USER_TOKEN}`, // ✅ USER TOKEN AQUI
       'Client-Id': TWITCH_CLIENT_ID,
       'Content-Type': 'application/json',
     },
@@ -99,7 +95,6 @@ async function twitchApi(path, { method = 'GET', body } = {}) {
 }
 
 async function ensureWsSubscription(sessionId) {
-  // evita duplicar
   const list = await twitchApi('/eventsub/subscriptions', { method: 'GET' });
 
   const exists = (list?.data || []).some((s) =>
@@ -176,12 +171,8 @@ async function sendLiveAlert() {
     .setTitle('🔴 ONLINE NA TWITCH !!!')
     .setURL(twitchUrl)
     .setDescription(
-      `**JOGANDO:** ${gameName}
-` +
-      (streamTitle ? `**TÍTULO:** ${streamTitle}
-
-` : `
-`) +
+      `**JOGANDO:** ${gameName}\n` +
+      (streamTitle ? `**TÍTULO:** ${streamTitle}\n\n` : `\n`) +
       `Clique no botão abaixo e venha acompanhar!`
     )
     .setTimestamp();
@@ -198,7 +189,6 @@ async function sendLiveAlert() {
   await channel.send({ embeds: [embed], components: [row] });
   console.log('✅ Alerta de live (EMBED + BOTÃO) enviado no Discord');
 }
-
 
 async function startTwitchEventSubWS() {
   console.log('🚀 Iniciando Twitch EventSub WS...');
@@ -252,14 +242,34 @@ async function startTwitchEventSubWS() {
 }
 
 // ==========================
-// Ready + Login
+// Discord Ready (um único lugar) + módulos + Twitch WS
 // ==========================
-client.once('clientReady', () => {
-  console.log(`🤖 Majin BooT online como ${client.user.tag}`);
+client.once('ready', () => {
+  console.log(`✅ DISCORD READY: ${client.user.tag}`);
+
+  // Evita duplicação se algum deploy/hot-reload reaproveitar processo
+  client.removeAllListeners('guildMemberAdd');
+
+  registerWelcomeModule(client);
+  registerRolesModule(client);
+
+  // Sobe o WS da Twitch só depois do Discord estar online
   startTwitchEventSubWS().catch(console.error);
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.on('error', (e) => console.error('❌ Discord client error:', e));
+client.on('shardError', (e) => console.error('❌ Discord shard error:', e));
+
+// ==========================
+// Login (com catch pra mostrar o erro no Render)
+// ==========================
+if (!DISCORD_TOKEN) {
+  console.error('❌ DISCORD_TOKEN está vazio/ausente no Render. O bot NÃO vai logar.');
+} else {
+  client.login(DISCORD_TOKEN)
+    .then(() => console.log('✅ Discord login() OK'))
+    .catch((e) => console.error('❌ Discord login() FALHOU:', e));
+}
 
 // ==========================
 // Healthcheck HTTP (Render gosta disso)
